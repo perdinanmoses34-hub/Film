@@ -12,11 +12,16 @@ import {
   FolderPlus,
   Video,
   Layers,
-  X
+  X,
+  Copy,
+  Check,
+  Key,
+  ShieldAlert,
+  Sparkles
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { googleSignIn, logoutGoogle, isSuperAdmin } from '../lib/firebaseAuth';
-import { scanDriveFolderCategories, DriveScanResult } from '../lib/driveSync';
+import { scanDriveFolderCategories, DriveScanResult, convertDriveFileToMovie } from '../lib/driveSync';
 import { Movie } from '../types';
 
 interface DriveSyncModalProps {
@@ -45,6 +50,24 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
+  // Unauthorized domain guidance state
+  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  // Manual token input state (alternative fallback)
+  const [showManualToken, setShowManualToken] = useState(false);
+  const [manualToken, setManualToken] = useState('');
+
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'perdinanmoses34-hub.github.io';
+  const firebaseProjectId = 'gen-lang-client-0380774191';
+  const firebaseAuthSettingsUrl = `https://console.firebase.google.com/project/${firebaseProjectId}/authentication/settings`;
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopiedDomain(true);
+    setTimeout(() => setCopiedDomain(false), 2500);
+  };
+
   // Extract folder ID if user pastes full URL
   const sanitizeFolderId = (input: string) => {
     const trimmed = input.trim();
@@ -59,13 +82,22 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({
     setIsSigningIn(true);
     setErrorMessage(null);
     setStatusMessage(null);
+    setUnauthorizedDomain(null);
     try {
       const res = await googleSignIn();
+      if (res.unauthorizedDomain) {
+        setUnauthorizedDomain(res.domain || currentHost);
+        setErrorMessage(res.error || 'Domain belum diizinkan di Firebase Authentication Authorized Domains.');
+        return;
+      }
       if (res.canceled) {
         setStatusMessage(res.error || 'Jendela login ditutup.');
         return;
       }
       if (res.error) {
+        if (res.error.includes('unauthorized-domain')) {
+          setUnauthorizedDomain(currentHost);
+        }
         setErrorMessage(res.error);
         return;
       }
@@ -74,10 +106,79 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({
         setStatusMessage(`Berhasil terhubung sebagai ${res.user.displayName || res.user.email}!`);
       }
     } catch (err: any) {
+      if (err.message && err.message.includes('unauthorized-domain')) {
+        setUnauthorizedDomain(currentHost);
+      }
       setErrorMessage(err.message || 'Gagal masuk dengan Google');
     } finally {
       setIsSigningIn(false);
     }
+  };
+
+  const handleApplyManualToken = () => {
+    if (!manualToken.trim()) {
+      setErrorMessage('Masukkan OAuth Access Token Google Drive yang valid.');
+      return;
+    }
+    const dummyUser = {
+      displayName: 'Google Drive Admin (Token)',
+      email: 'admin-drive@custom-token.io',
+      uid: 'token-user',
+    } as unknown as User;
+
+    onAuthSuccess(dummyUser, manualToken.trim());
+    setStatusMessage('Access Token berhasil diterapkan! Sekarang Anda dapat memindai folder Drive.');
+    setErrorMessage(null);
+  };
+
+  const handleLoadDemoCollection = () => {
+    const demoResult: DriveScanResult = {
+      rootFolderId: sanitizeFolderId(folderInput),
+      rootFolderName: 'Cinema Google Drive (Koleksi Pilihan)',
+      totalVideos: 6,
+      categories: [
+        {
+          category: 'Action',
+          folderId: 'folder-action-1',
+          videoCount: 2,
+          files: [
+            { id: '1A98kXyZ0918', name: 'The.Raid.Redemption.1080p.mp4', mimeType: 'video/mp4', categoryFolder: 'Action' },
+            { id: '1B87mWxY1029', name: 'John.Wick.Chapter.4.4K.mp4', mimeType: 'video/mp4', categoryFolder: 'Action' }
+          ]
+        },
+        {
+          category: 'Sci-Fi',
+          folderId: 'folder-scifi-2',
+          videoCount: 2,
+          files: [
+            { id: '1C76nVwX2130', name: 'Interstellar.IMAX.Enhanced.1080p.mp4', mimeType: 'video/mp4', categoryFolder: 'Sci-Fi' },
+            { id: '1D65oUvW3241', name: 'Cyber.Nusantara.2088.UHD.mkv', mimeType: 'video/mp4', categoryFolder: 'Sci-Fi' }
+          ]
+        },
+        {
+          category: 'Horor',
+          folderId: 'folder-horor-3',
+          videoCount: 2,
+          files: [
+            { id: '1E54pTuV4352', name: 'Pengabdi.Setan.2.Communion.1080p.mp4', mimeType: 'video/mp4', categoryFolder: 'Horor' },
+            { id: '1F43qStU5463', name: 'Misteri.Desa.Penari.FullHD.mp4', mimeType: 'video/mp4', categoryFolder: 'Horor' }
+          ]
+        }
+      ],
+      syncedMovies: [
+        convertDriveFileToMovie({ id: '1A98kXyZ0918', name: 'The Raid Redemption (2011)', mimeType: 'video/mp4', categoryFolder: 'Action' }, 'Action'),
+        convertDriveFileToMovie({ id: '1B87mWxY1029', name: 'John Wick: Chapter 4 (2023)', mimeType: 'video/mp4', categoryFolder: 'Action' }, 'Action'),
+        convertDriveFileToMovie({ id: '1C76nVwX2130', name: 'Interstellar (2014)', mimeType: 'video/mp4', categoryFolder: 'Sci-Fi' }, 'Sci-Fi'),
+        convertDriveFileToMovie({ id: '1D65oUvW3241', name: 'Cyber Nusantara 2088 (2025)', mimeType: 'video/mp4', categoryFolder: 'Sci-Fi' }, 'Sci-Fi'),
+        convertDriveFileToMovie({ id: '1E54pTuV4352', name: 'Pengabdi Setan 2 (2022)', mimeType: 'video/mp4', categoryFolder: 'Horor' }, 'Horor'),
+        convertDriveFileToMovie({ id: '1F43qStU5463', name: 'Misteri Desa Penari (2024)', mimeType: 'video/mp4', categoryFolder: 'Horor' }, 'Horor'),
+      ]
+    };
+
+    setScanResult(demoResult);
+    onApplySyncedMovies(demoResult.syncedMovies);
+    setStatusMessage('Berhasil memuat 6 film contoh dengan struktur subfolder kategori (Action, Sci-Fi, Horor) ke katalog Anda!');
+    setErrorMessage(null);
   };
 
   const handleScan = async () => {
@@ -208,6 +309,115 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({
           </div>
         </div>
 
+        {/* Special Guidance: Unauthorized Domain Banner */}
+        {unauthorizedDomain && (
+          <div className="mb-5 p-4 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-200 text-xs space-y-3">
+            <div className="flex items-start gap-2.5">
+              <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold text-white text-sm">
+                  Domain Belum Diizinkan di Firebase Authentication
+                </div>
+                <p className="text-amber-300/90 leading-relaxed">
+                  Firebase menolak login dari domain ini karena domain belum didaftarkan di daftar <strong>Authorized domains</strong> Firebase Console.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-neutral-950/80 rounded-lg p-3 border border-amber-500/20 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-neutral-400">Domain yang harus ditambahkan:</span>
+                <button
+                  onClick={() => copyToClipboard(unauthorizedDomain)}
+                  className="px-2.5 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {copiedDomain ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Tersalin!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Salin Domain</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="font-mono text-xs text-white bg-neutral-900 px-3 py-1.5 rounded border border-neutral-800 select-all">
+                {unauthorizedDomain}
+              </div>
+            </div>
+
+            <div className="space-y-1.5 text-[11px] text-neutral-300 pl-1">
+              <div className="font-semibold text-white">Cara Mengaktifkan di Firebase Console (1 Menit):</div>
+              <ol className="list-decimal pl-4 space-y-1 text-neutral-300">
+                <li>
+                  Buka Firebase Console:{' '}
+                  <a
+                    href={firebaseAuthSettingsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-amber-400 underline inline-flex items-center gap-0.5 hover:text-amber-300 font-medium"
+                  >
+                    Buka Pengaturan Firebase Auth <ExternalLink className="w-3 h-3" />
+                  </a>
+                </li>
+                <li>Pilih tab <strong>Settings</strong> &gt; menu <strong>Authorized domains</strong>.</li>
+                <li>Klik tombol <strong>"Add domain"</strong> lalu tempelkan <code className="text-amber-300 font-mono bg-neutral-900 px-1 py-0.5 rounded">{unauthorizedDomain}</code>.</li>
+                <li>Klik <strong>Save</strong>. Lalu kembali ke sini dan klik tombol <strong>"Masuk dengan Google"</strong> kembali.</li>
+              </ol>
+            </div>
+          </div>
+        )}
+
+        {/* Alternative Options (Manual Token & Demo) */}
+        <div className="mb-5 flex flex-wrap items-center gap-2 text-xs">
+          <button
+            onClick={() => setShowManualToken(!showManualToken)}
+            className="px-3 py-1.5 rounded-lg bg-neutral-800/80 hover:bg-neutral-800 text-neutral-300 hover:text-white flex items-center gap-1.5 transition-colors border border-neutral-700/60 cursor-pointer"
+          >
+            <Key className="w-3.5 h-3.5 text-amber-400" />
+            {showManualToken ? 'Tutup Input Token' : 'Opsi Alternatif: Masukkan Token Manual'}
+          </button>
+
+          <button
+            onClick={handleLoadDemoCollection}
+            className="px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 flex items-center gap-1.5 transition-colors border border-purple-500/30 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+            Muat Contoh Subfolder Drive (Uji Coba Langsung)
+          </button>
+        </div>
+
+        {/* Manual Token Input Drawer */}
+        {showManualToken && (
+          <div className="mb-5 p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2.5">
+            <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+              <Key className="w-3.5 h-3.5 text-amber-400" />
+              <span>OAuth 2.0 Bearer Access Token Google Drive:</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={manualToken}
+                onChange={(e) => setManualToken(e.target.value)}
+                placeholder="ya29.a0AfH6SM..."
+                className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2 text-xs text-neutral-200 focus:outline-none focus:border-amber-500 font-mono"
+              />
+              <button
+                onClick={handleApplyManualToken}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-neutral-950 font-bold text-xs shrink-0 transition-colors cursor-pointer"
+              >
+                Gunakan Token
+              </button>
+            </div>
+            <p className="text-[11px] text-neutral-400">
+              Dapat diperoleh dari Google OAuth2 Playground atau Google Cloud Console.
+            </p>
+          </div>
+        )}
+
         {/* Folder Input */}
         <div className="space-y-3 mb-5">
           <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
@@ -269,7 +479,7 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({
           </div>
         )}
 
-        {errorMessage && (
+        {errorMessage && !unauthorizedDomain && (
           <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
             <span>{errorMessage}</span>

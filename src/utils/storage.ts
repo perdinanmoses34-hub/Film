@@ -9,12 +9,12 @@ const REVIEWS_KEY = 'cinedrive_user_reviews_v1';
 
 export const DEFAULT_PROFILE: UserProfile = {
   id: 'usr-8821',
-  name: 'Moni Cinema',
-  email: 'moni150388@gmail.com',
+  name: 'Perdinan Moses',
+  email: 'perdinan.moses34@guru.smp.belajar.id',
   avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80',
   isVip: true,
-  vipTierName: 'VIP Ultra 4K Master',
-  vipExpiresAt: '2027-09-11',
+  vipTierName: 'Super Admin Cinema',
+  vipExpiresAt: '2028-01-01',
   dailyGoalMinutes: 90,
   streakDays: 5,
   favoriteGenres: ['Sci-Fi', 'Action', 'Horor'],
@@ -98,7 +98,17 @@ export function saveOfflineDownloads(items: OfflineDownload[]) {
 export function getStoredProfile(): UserProfile {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
-    return raw ? JSON.parse(raw) : DEFAULT_PROFILE;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.email === 'moni150388@gmail.com') {
+        parsed.email = 'perdinan.moses34@guru.smp.belajar.id';
+        parsed.name = 'Perdinan Moses';
+        parsed.vipTierName = 'Super Admin Cinema';
+        localStorage.setItem(PROFILE_KEY, JSON.stringify(parsed));
+      }
+      return parsed;
+    }
+    return DEFAULT_PROFILE;
   } catch {
     return DEFAULT_PROFILE;
   }

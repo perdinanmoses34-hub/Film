@@ -30,11 +30,16 @@ let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 
 // Designated Super Admin Email
-export const SUPER_ADMIN_EMAIL = 'moni150388@gmail.com';
+export const SUPER_ADMIN_EMAIL = 'perdinan.moses34@guru.smp.belajar.id';
+
+export const ADMIN_EMAILS = [
+  'perdinan.moses34@guru.smp.belajar.id'
+];
 
 export const isSuperAdmin = (user: User | null | undefined): boolean => {
   if (!user || !user.email) return false;
-  return user.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+  const email = user.email.toLowerCase().trim();
+  return ADMIN_EMAILS.some(admin => admin.toLowerCase() === email);
 };
 
 // Initialize auth state listener
@@ -56,6 +61,8 @@ export interface SignInResult {
   user: User | null;
   accessToken: string | null;
   canceled?: boolean;
+  unauthorizedDomain?: boolean;
+  domain?: string;
   error?: string;
 }
 
@@ -80,6 +87,19 @@ export const googleSignIn = async (): Promise<SignInResult> => {
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
+    // Gracefully handle unauthorized domain (e.g. GitHub Pages or custom preview)
+    if (error.code === 'auth/unauthorized-domain') {
+      const currentDomain = typeof window !== 'undefined' ? window.location.hostname : 'perdinanmoses34-hub.github.io';
+      console.warn('Firebase Auth unauthorized domain:', currentDomain);
+      return {
+        user: null,
+        accessToken: null,
+        unauthorizedDomain: true,
+        domain: currentDomain,
+        error: `Domain "${currentDomain}" belum diizinkan di Firebase Authentication. Tambahkan domain ini di Firebase Console (Settings > Authorized domains).`
+      };
+    }
+
     // Gracefully handle common user cancellation without tripping console.error
     if (error.code === 'auth/popup-closed-by-user') {
       console.warn('Google Sign-In popup was closed by user.');
