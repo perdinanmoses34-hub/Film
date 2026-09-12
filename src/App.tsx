@@ -39,8 +39,12 @@ import {
   DriveSyncModal 
 } from './components/DriveSyncModal';
 import { 
+  AdminLoginModal 
+} from './components/AdminLoginModal';
+import { 
   initAuth, 
-  setCachedAccessToken 
+  setCachedAccessToken,
+  isSuperAdmin 
 } from './lib/firebaseAuth';
 import { User } from 'firebase/auth';
 import { 
@@ -75,7 +79,9 @@ import {
   HardDrive, 
   Search, 
   Flame, 
-  Film 
+  Film,
+  Lock,
+  ShieldCheck 
 } from 'lucide-react';
 
 export default function App() {
@@ -106,7 +112,16 @@ export default function App() {
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showNotificationModal, setShowNotificationModal] = useState<boolean>(false);
   const [showDriveSyncModal, setShowDriveSyncModal] = useState<boolean>(false);
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState<boolean>(false);
   const [shareMovieTarget, setShareMovieTarget] = useState<Movie | null>(null);
+
+  // Admin Access & Authentication State
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('cinedrive_admin_auth') === 'true';
+    }
+    return false;
+  });
 
   // Google Drive & Auth State
   const [googleUser, setGoogleUser] = useState<User | null>(null);
@@ -124,6 +139,10 @@ export default function App() {
       (user, token) => {
         setGoogleUser(user);
         if (token) setDriveAccessToken(token);
+        if (user && isSuperAdmin(user)) {
+          setIsAdmin(true);
+          localStorage.setItem('cinedrive_admin_auth', 'true');
+        }
       },
       () => {
         setGoogleUser(null);
@@ -386,6 +405,29 @@ export default function App() {
 
   const unreadNotificationsCount = (notifications || []).filter((n) => !n.isRead).length;
 
+  const handleAdminLoginSuccess = (user?: User) => {
+    setIsAdmin(true);
+    localStorage.setItem('cinedrive_admin_auth', 'true');
+    if (user) setGoogleUser(user);
+    const newNotif: NotificationItem = {
+      id: 'notif-admin-' + Date.now(),
+      title: 'Mode Administrator Aktif',
+      message: 'Akses penuh diberikan: Anda kini dapat mengatur integrasi Google Drive dan mengelola seluruh katalog film.',
+      type: 'system',
+      timestamp: 'Baru saja',
+      isRead: false
+    };
+    setNotifications(prev => [newNotif, ...prev]);
+    setShowAdminModal(true);
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdmin(false);
+    localStorage.removeItem('cinedrive_admin_auth');
+    setShowAdminModal(false);
+    setShowDriveSyncModal(false);
+  };
+
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans selection:bg-rose-600 selection:text-white pb-20 md:pb-8">
       
@@ -425,7 +467,47 @@ export default function App() {
         offlineDownloadCount={downloads.length}
         userProfile={userProfile}
         isVip={userProfile.isVip}
+        isAdmin={isAdmin}
+        onOpenAdminLogin={() => setShowAdminLoginModal(true)}
       />
+
+      {/* Admin Mode Bar - Active only for Administrator */}
+      {isAdmin && (
+        <div className="bg-gradient-to-r from-amber-950/80 via-neutral-900 to-amber-950/80 border-b border-amber-500/30 px-4 py-2 text-xs text-amber-200">
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="font-bold text-white">Mode Pengelola (Admin) Aktif:</span>
+              <span className="text-amber-300/80 text-[11px]">perdinan.moses34@guru.smp.belajar.id</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                id="adminbar-manage-movies-btn"
+                onClick={() => setShowAdminModal(true)}
+                className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+              >
+                <Film className="w-3.5 h-3.5" />
+                <span>Atur Film & Katalog</span>
+              </button>
+              <button
+                id="adminbar-sync-drive-btn"
+                onClick={() => setShowDriveSyncModal(true)}
+                className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+              >
+                <HardDrive className="w-3.5 h-3.5" />
+                <span>Sinkron Google Drive</span>
+              </button>
+              <button
+                id="adminbar-logout-btn"
+                onClick={handleAdminLogout}
+                className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs transition-colors cursor-pointer"
+              >
+                Keluar Mode Admin
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 space-y-8">
@@ -502,8 +584,8 @@ export default function App() {
               />
             )}
 
-            {/* Google Drive Personal Folder Callout Banner */}
-            {!isOfflineMode && (
+            {/* Google Drive Personal Folder Callout Banner - EXCLUSIVE to Admin */}
+            {isAdmin && !isOfflineMode && (
               <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-950/40 via-neutral-900 to-neutral-950 border border-amber-800/40 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg shadow-amber-950/20">
                 <div className="flex items-center gap-3 text-center sm:text-left">
                   <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
@@ -661,10 +743,66 @@ export default function App() {
             <span>• Platform Streaming Google Drive API & Sinkronisasi Real-Time</span>
           </div>
           <div className="flex items-center gap-4 text-[11px]">
-            <button onClick={() => setShowAdminModal(true)} className="hover:text-neutral-300">Panel Admin</button>
-            <button onClick={() => setShowAnalyticsModal(true)} className="hover:text-neutral-300">Analitik Tontonan</button>
-            <button onClick={() => setShowOfflineModal(true)} className="hover:text-neutral-300">Mode Offline</button>
-            <button onClick={() => setShowSubscriptionModal(true)} className="hover:text-rose-400 font-bold">Paket VIP</button>
+            {isAdmin ? (
+              <>
+                <button 
+                  id="footer-admin-panel-btn"
+                  onClick={() => setShowAdminModal(true)} 
+                  className="text-amber-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Panel Film & Konten</span>
+                </button>
+                <button 
+                  id="footer-drive-sync-btn"
+                  onClick={() => setShowDriveSyncModal(true)} 
+                  className="text-emerald-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <HardDrive className="w-3.5 h-3.5" />
+                  <span>Sinkron Google Drive</span>
+                </button>
+                <button 
+                  id="footer-analytics-btn"
+                  onClick={() => setShowAnalyticsModal(true)} 
+                  className="hover:text-neutral-300 cursor-pointer"
+                >
+                  Analitik Tontonan
+                </button>
+                <button 
+                  id="footer-admin-logout-btn"
+                  onClick={handleAdminLogout} 
+                  className="text-neutral-400 hover:text-rose-400 cursor-pointer"
+                >
+                  Keluar Admin
+                </button>
+              </>
+            ) : (
+              <>
+                <button 
+                  id="footer-offline-btn"
+                  onClick={() => setShowOfflineModal(true)} 
+                  className="hover:text-neutral-300 cursor-pointer"
+                >
+                  Mode Offline
+                </button>
+                <button 
+                  id="footer-subscription-btn"
+                  onClick={() => setShowSubscriptionModal(true)} 
+                  className="hover:text-rose-400 font-bold cursor-pointer"
+                >
+                  Paket VIP
+                </button>
+                <button 
+                  id="footer-admin-login-btn"
+                  onClick={() => setShowAdminLoginModal(true)} 
+                  className="text-neutral-500 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Login Khusus Administrator Bioskop & Google Drive"
+                >
+                  <Lock className="w-3 h-3" />
+                  <span>Login Admin</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </footer>
@@ -811,6 +949,25 @@ export default function App() {
           }}
           onApplySyncedMovies={handleApplySyncedMovies}
           currentFolderId="1fIXkBtjfRHIbRYEhrmJK7x5xmTGsH47g"
+        />
+      )}
+
+      {/* Admin Dedicated Login Modal */}
+      {showAdminLoginModal && (
+        <AdminLoginModal
+          onClose={() => setShowAdminLoginModal(false)}
+          isAdmin={isAdmin}
+          adminUser={googleUser}
+          onAdminLoginSuccess={handleAdminLoginSuccess}
+          onAdminLogout={handleAdminLogout}
+          onOpenAdminPanel={() => {
+            setShowAdminLoginModal(false);
+            setShowAdminModal(true);
+          }}
+          onOpenDriveSync={() => {
+            setShowAdminLoginModal(false);
+            setShowDriveSyncModal(true);
+          }}
         />
       )}
 

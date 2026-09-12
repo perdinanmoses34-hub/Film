@@ -11,7 +11,8 @@ import {
   WifiOff, 
   BarChart3, 
   ShieldCheck, 
-  HardDrive
+  HardDrive,
+  Lock
 } from 'lucide-react';
 import { UserProfile, NotificationItem } from '../types';
 
@@ -38,6 +39,8 @@ export interface NavbarProps {
   isVip?: boolean;
   activeTab?: string;
   setActiveTab?: (tab: string) => void;
+  isAdmin?: boolean;
+  onOpenAdminLogin?: () => void;
 }
 
 const CATEGORIES = [
@@ -75,6 +78,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   isVip = false,
   activeTab = 'home',
   setActiveTab,
+  isAdmin = false,
+  onOpenAdminLogin,
 }) => {
   const unreadNotifs = typeof unreadNotificationsCount === 'number'
     ? unreadNotificationsCount
@@ -113,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </button>
 
-            {/* Desktop Navigation Links */}
+            {/* Desktop Navigation Links - User only sees Beranda; Admin gets controls */}
             <nav className="hidden lg:flex items-center gap-1">
               <button
                 id="nav-home-btn"
@@ -130,41 +135,46 @@ export const Navbar: React.FC<NavbarProps> = ({
                 Beranda
               </button>
 
-              {onOpenDriveSync && (
-                <button
-                  id="nav-drive-btn"
-                  onClick={onOpenDriveSync}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors ${
-                    isDriveConnected 
-                      ? 'text-amber-400 bg-amber-500/10 border border-amber-500/30' 
-                      : 'text-neutral-300 hover:text-white hover:bg-neutral-800/60'
-                  }`}
-                >
-                  <HardDrive className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Google Drive Anda</span>
-                  {isDriveConnected && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              {/* Admin-Exclusive Controls: Hidden completely from regular users */}
+              {isAdmin && (
+                <>
+                  <button
+                    id="nav-admin-btn"
+                    onClick={onOpenAdmin}
+                    className="px-3 py-1.5 text-xs font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Panel Film & Konten</span>
+                  </button>
+
+                  {onOpenDriveSync && (
+                    <button
+                      id="nav-drive-btn"
+                      onClick={onOpenDriveSync}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors ${
+                        isDriveConnected 
+                          ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30' 
+                          : 'text-neutral-300 hover:text-white hover:bg-neutral-800/60'
+                      }`}
+                    >
+                      <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Sinkron Google Drive</span>
+                      {isDriveConnected && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      )}
+                    </button>
                   )}
-                </button>
+
+                  <button
+                    id="nav-analytics-btn"
+                    onClick={onOpenAnalytics}
+                    className="px-3 py-1.5 text-xs font-semibold text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 rounded-lg flex items-center gap-1.5 transition-colors"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Analitik</span>
+                  </button>
+                </>
               )}
-
-              <button
-                id="nav-analytics-btn"
-                onClick={onOpenAnalytics}
-                className="px-3 py-1.5 text-xs font-semibold text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 rounded-lg flex items-center gap-1.5 transition-colors"
-              >
-                <BarChart3 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Analitik</span>
-              </button>
-
-              <button
-                id="nav-admin-btn"
-                onClick={onOpenAdmin}
-                className="px-3 py-1.5 text-xs font-semibold text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 rounded-lg flex items-center gap-1.5 transition-colors"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-                <span>Panel Admin</span>
-              </button>
             </nav>
           </div>
 
@@ -195,6 +205,31 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden sm:inline">Kurasi AI</span>
               <span className="sm:hidden">AI</span>
             </button>
+
+            {/* Dedicated Admin Portal Button */}
+            {onOpenAdminLogin && (
+              isAdmin ? (
+                <button
+                  id="nav-admin-badge-btn"
+                  onClick={onOpenAdminLogin}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 text-xs font-bold transition-all shadow-sm cursor-pointer shrink-0"
+                  title="Mode Admin Aktif - Kelola Bioskop & Google Drive"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">Mode Admin</span>
+                </button>
+              ) : (
+                <button
+                  id="nav-admin-login-btn"
+                  onClick={onOpenAdminLogin}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-amber-500/40 text-neutral-400 hover:text-amber-300 text-xs font-semibold transition-all cursor-pointer shrink-0"
+                  title="Login Khusus Admin (Atur Google Drive & Film)"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Admin</span>
+                </button>
+              )
+            )}
 
             {/* Offline Mode Indicator & Library */}
             <button
@@ -244,7 +279,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               id="profile-avatar-btn"
               onClick={onOpenProfile}
               className="relative rounded-full ring-2 ring-neutral-800 hover:ring-rose-500 transition-all overflow-hidden w-8 h-8 shrink-0"
-              title="Profil & Sinkronisasi Perangkat"
+              title="Profil Pengguna"
             >
               <img
                 src={userProfile?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80'}
@@ -311,6 +346,15 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <button
+          id="mobile-nav-vip"
+          onClick={onOpenSubscription}
+          className="flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[11px] font-semibold text-rose-400"
+        >
+          <Crown className="w-5 h-5" />
+          <span>Langganan</span>
+        </button>
+
+        <button
           id="mobile-nav-offline"
           onClick={onOpenOfflineLibrary}
           className="flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[11px] font-semibold text-amber-400 relative"
@@ -324,23 +368,25 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </button>
 
-        <button
-          id="mobile-nav-analytics"
-          onClick={onOpenAnalytics}
-          className="flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[11px] font-semibold text-emerald-400"
-        >
-          <BarChart3 className="w-5 h-5" />
-          <span>Analitik</span>
-        </button>
-
-        <button
-          id="mobile-nav-profile"
-          onClick={onOpenProfile}
-          className="flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[11px] font-semibold text-neutral-400"
-        >
-          <User className="w-5 h-5" />
-          <span>Profil</span>
-        </button>
+        {isAdmin ? (
+          <button
+            id="mobile-nav-admin"
+            onClick={onOpenAdminLogin}
+            className="flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[11px] font-semibold text-amber-300"
+          >
+            <ShieldCheck className="w-5 h-5" />
+            <span>Admin</span>
+          </button>
+        ) : (
+          <button
+            id="mobile-nav-profile"
+            onClick={onOpenProfile}
+            className="flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[11px] font-semibold text-neutral-400"
+          >
+            <User className="w-5 h-5" />
+            <span>Profil</span>
+          </button>
+        )}
       </div>
     </>
   );
