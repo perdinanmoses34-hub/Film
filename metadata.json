@@ -1,0 +1,7 @@
+{
+  "name": "CineDrive Stream",
+  "description": "Aplikasi streaming film modern bertenaga Google Drive API dengan rekomendasi kategori AI, pemutaran offline, ulasan komunitas, sinkronisasi progres tontonan, dan langganan digital.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
