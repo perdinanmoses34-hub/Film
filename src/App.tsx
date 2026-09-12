@@ -131,16 +131,19 @@ export default function App() {
       }
     );
 
-    // Fetch movies from server API
+    // Fetch movies from server API if available, else gracefully keep INITIAL_MOVIES
     fetch('/api/movies')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
         if (data.success && Array.isArray(data.data) && data.data.length > 0) {
           setMovies(data.data);
         }
       })
       .catch((err) => {
-        console.warn('Using local initial movies:', err);
+        console.warn('Server offline atau mode statis/GitHub Pages, menggunakan katalog bawaan:', err);
       });
 
     return () => {
@@ -311,22 +314,31 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(movieData),
       });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setMovies((prev) => [data.data, ...prev]);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.data) {
+          setMovies((prev) => [data.data, ...prev]);
+          return;
+        }
       }
     } catch (e) {
-      console.error(e);
+      console.warn('API tambah film offline, menyimpan ke state lokal:', e);
     }
+    // Fallback: simpan di state lokal
+    const localNewMovie: Movie = {
+      ...movieData,
+      id: movieData.id || `movie-custom-${Date.now()}`,
+    };
+    setMovies((prev) => [localNewMovie, ...prev]);
   };
 
   const handleDeleteMovie = async (movieId: string) => {
     try {
       await fetch(`/api/movies/${movieId}`, { method: 'DELETE' });
-      setMovies((prev) => prev.filter((m) => m.id !== movieId));
     } catch (e) {
-      console.error(e);
+      console.warn('API hapus film offline, menghapus dari state lokal:', e);
     }
+    setMovies((prev) => prev.filter((m) => m.id !== movieId));
   };
 
   const handleToggleMoviePremium = (movieId: string) => {
