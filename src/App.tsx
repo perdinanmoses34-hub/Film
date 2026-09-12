@@ -81,16 +81,41 @@ import {
   Flame, 
   Film,
   Lock,
-  ShieldCheck 
+  ShieldCheck,
+  CheckCircle2
 } from 'lucide-react';
+import { 
+  testFirestoreConnection, 
+  subscribeMovies, 
+  saveMovieToFirestore, 
+  saveMoviesBatchToFirestore, 
+  deleteMovieFromFirestore 
+} from './lib/firestoreService';
+import { extractGoogleDriveId } from './utils/driveUtils';
 
 export default function App() {
-  // Movie Database State
-  const [movies, setMovies] = useState<Movie[]>(INITIAL_MOVIES);
+  // Movie Database State: load from localStorage cache first if available
+  const [movies, setMovies] = useState<Movie[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('cinedrive_movies_catalog_v1');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+      } catch (e) {
+        console.warn('Cannot load cached movies:', e);
+      }
+    }
+    return INITIAL_MOVIES;
+  });
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [playingMovie, setPlayingMovie] = useState<Movie | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('Semua');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [syncToast, setSyncToast] = useState<string | null>(null);
 
   // Watchlist & History
   const [watchlist, setWatchlist] = useState<string[]>([]);
@@ -128,14 +153,32 @@ export default function App() {
   const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
   const [syncedDriveMovieCount, setSyncedDriveMovieCount] = useState<number>(0);
 
-  // Load persistent local data on mount & initialize Auth listener
+  // Load persistent local data on mount & initialize Auth & Firestore real-time listeners
   useEffect(() => {
     setWatchlist(loadWatchlist());
     setProgressMap(loadProgressMap());
     setDownloads(loadOfflineDownloads());
 
-    // Initialize Firebase Auth listener
-    const unsubscribe = initAuth(
+    // Test Firestore connectivity
+    testFirestoreConnection();
+
+    // 1. Listen for real-time Firestore catalog updates (all devices & users)
+    const unsubFirestore = subscribeMovies((firestoreMovies) => {
+      if (firestoreMovies && firestoreMovies.length > 0) {
+        setMovies((prev) => {
+          const fsMap = new Map(firestoreMovies.map((m) => [m.id, m]));
+          const prevRemaining = prev.filter((m) => !fsMap.has(m.id));
+          const merged = [...firestoreMovies, ...prevRemaining];
+          try {
+            localStorage.setItem('cinedrive_movies_catalog_v1', JSON.stringify(merged.slice(0, 100)));
+          } catch (e) {}
+          return merged;
+        });
+      }
+    });
+
+    // 2. Initialize Firebase Auth listener
+    const unsubscribeAuth = initAuth(
       (user, token) => {
         setGoogleUser(user);
         if (token) setDriveAccessToken(token);
@@ -150,7 +193,7 @@ export default function App() {
       }
     );
 
-    // Fetch movies from server API if available, else gracefully keep INITIAL_MOVIES
+    // 3. Fetch movies from server API (persisted in data_saved_movies.json)
     fetch('/api/movies')
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -158,34 +201,67 @@ export default function App() {
       })
       .then((data) => {
         if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-          setMovies(data.data);
+          setMovies((prev) => {
+            const serverMap = new Map(data.data.map((m: Movie) => [m.id, m]));
+            const prevRemaining = prev.filter((m) => !serverMap.has(m.id));
+            const merged = [...data.data, ...prevRemaining];
+            try {
+              localStorage.setItem('cinedrive_movies_catalog_v1', JSON.stringify(merged.slice(0, 100)));
+            } catch (e) {}
+            return merged;
+          });
         }
       })
       .catch((err) => {
-        console.warn('Server offline atau mode statis/GitHub Pages, menggunakan katalog bawaan:', err);
+        console.warn('Server endpoint notice:', err);
       });
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeAuth) unsubscribeAuth();
+      if (unsubFirestore) unsubFirestore();
     };
   }, []);
 
   // Handle synced movies applied from Drive
   const handleApplySyncedMovies = (driveMovies: Movie[]) => {
     if (!driveMovies || driveMovies.length === 0) return;
+
+    // Reset filters to ensure the user immediately sees their synced movies on dashboard!
+    setActiveCategory('Semua');
+    setSearchQuery('');
+
+    // Update state immediately
     setMovies((prevMovies) => {
-      // Merge by ID or title so existing local demo movies are preserved if needed
       const driveIds = new Set(driveMovies.map((m) => m.id));
       const filteredPrev = prevMovies.filter((m) => !driveIds.has(m.id));
-      return [...driveMovies, ...filteredPrev];
+      const merged = [...driveMovies, ...filteredPrev];
+      try {
+        localStorage.setItem('cinedrive_movies_catalog_v1', JSON.stringify(merged.slice(0, 100)));
+      } catch (e) {}
+      return merged;
     });
+
     setSyncedDriveMovieCount(driveMovies.length);
+
+    // Persist to Firestore database
+    saveMoviesBatchToFirestore(driveMovies);
+
+    // Persist to Server database (data_saved_movies.json)
+    fetch('/api/movies/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movies: driveMovies })
+    }).catch(err => console.warn('Server batch save notice:', err));
+
+    // Show instant toast banner
+    setSyncToast(`Berhasil! ${driveMovies.length} film Google Drive tersimpan dan langsung tampil di Dashboard.`);
+    setTimeout(() => setSyncToast(null), 6000);
 
     // Add notification
     const newNotif: NotificationItem = {
       id: 'notif-drive-' + Date.now(),
       title: 'Koleksi Google Drive Berhasil Disinkronkan',
-      message: `${driveMovies.length} film dari folder Google Drive Anda berhasil dimuat ke katalog dan siap ditonton.`,
+      message: `${driveMovies.length} film dari folder Google Drive Anda berhasil tersimpan secara permanen dan tampil di bagian atas dashboard untuk semua pengguna.`,
       timestamp: 'Baru saja',
       isRead: false,
       type: 'system',
@@ -327,48 +403,112 @@ export default function App() {
 
   // Admin movie operations
   const handleAddMovie = async (movieData: any) => {
+    const cleanDriveId = extractGoogleDriveId(movieData.googleDriveFileId || '');
+    const cleanMovie: Movie = {
+      id: movieData.id || `movie-${Date.now()}`,
+      title: movieData.title,
+      originalTitle: movieData.originalTitle || movieData.title,
+      synopsis: movieData.synopsis || 'Film disinkronkan dari Google Drive.',
+      posterUrl: movieData.posterUrl || 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&auto=format&fit=crop&q=80',
+      backdropUrl: movieData.backdropUrl || movieData.posterUrl || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1600&auto=format&fit=crop&q=80',
+      genres: Array.isArray(movieData.genres) && movieData.genres.length > 0 ? movieData.genres : ['Google Drive', 'Koleksi Utama'],
+      year: Number(movieData.year) || new Date().getFullYear(),
+      durationMinutes: Number(movieData.durationMinutes) || 110,
+      rating: Number(movieData.rating) || 8.8,
+      ageRating: movieData.ageRating || '13+',
+      isPremium: Boolean(movieData.isPremium),
+      price: movieData.isPremium ? (Number(movieData.price) || 35000) : 0,
+      googleDriveFileId: cleanDriveId,
+      driveShareUrl: `https://drive.google.com/file/d/${cleanDriveId}/view?usp=sharing`,
+      streamEmbedUrl: `https://drive.google.com/file/d/${cleanDriveId}/preview`,
+      trailerVideoUrl: movieData.trailerVideoUrl || '',
+      resolution: movieData.resolution || '1080p FHD',
+      director: movieData.director || 'Google Drive Cinema',
+      cast: Array.isArray(movieData.cast) ? movieData.cast : (movieData.cast ? [movieData.cast] : ['Koleksi Pribadi']),
+      audio: ['Indonesian (Dolby 5.1)', 'English (Stereo)'],
+      subtitles: ['Bahasa Indonesia', 'English'],
+      views: 120,
+      totalWatchHours: 85,
+      releaseDate: new Date().toISOString().split('T')[0],
+      isNewRelease: true,
+      isTrending: Boolean(movieData.isTrending),
+    };
+
+    // 1. Reset filter so new movie is immediately visible on dashboard!
+    setActiveCategory('Semua');
+    setSearchQuery('');
+
+    // 2. Prepend to local state & localStorage
+    setMovies((prev) => {
+      const merged = [cleanMovie, ...prev.filter((m) => m.id !== cleanMovie.id)];
+      try {
+        localStorage.setItem('cinedrive_movies_catalog_v1', JSON.stringify(merged.slice(0, 100)));
+      } catch (e) {}
+      return merged;
+    });
+
+    // 3. Save to Firestore (Real-time sync to all users)
+    saveMovieToFirestore(cleanMovie).catch((err) => {
+      console.warn('Firestore direct save warning:', err);
+    });
+
+    // 4. Save to Backend Server (file-system persistent data_saved_movies.json)
     try {
-      const res = await fetch('/api/movies', {
+      await fetch('/api/movies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(movieData),
+        body: JSON.stringify(cleanMovie),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.data) {
-          setMovies((prev) => [data.data, ...prev]);
-          return;
-        }
-      }
     } catch (e) {
-      console.warn('API tambah film offline, menyimpan ke state lokal:', e);
+      console.warn('API tambah film offline, data tersimpan di browser & Firestore:', e);
     }
-    // Fallback: simpan di state lokal
-    const localNewMovie: Movie = {
-      ...movieData,
-      id: movieData.id || `movie-custom-${Date.now()}`,
-    };
-    setMovies((prev) => [localNewMovie, ...prev]);
+
+    // 5. Toast notification
+    setSyncToast(`Film "${cleanMovie.title}" berhasil disimpan dan langsung tampil di Dashboard!`);
+    setTimeout(() => setSyncToast(null), 6000);
   };
 
   const handleDeleteMovie = async (movieId: string) => {
+    // 1. Delete from Firestore
+    deleteMovieFromFirestore(movieId).catch((err) => {
+      console.warn('Firestore delete notice:', err);
+    });
+
+    // 2. Delete from Backend Server
     try {
       await fetch(`/api/movies/${movieId}`, { method: 'DELETE' });
     } catch (e) {
-      console.warn('API hapus film offline, menghapus dari state lokal:', e);
+      console.warn('API hapus film offline:', e);
     }
-    setMovies((prev) => prev.filter((m) => m.id !== movieId));
+
+    // 3. Delete from local state & cache
+    setMovies((prev) => {
+      const updated = prev.filter((m) => m.id !== movieId);
+      try {
+        localStorage.setItem('cinedrive_movies_catalog_v1', JSON.stringify(updated.slice(0, 100)));
+      } catch (e) {}
+      return updated;
+    });
+
+    setSyncToast('Film berhasil dihapus dari katalog.');
+    setTimeout(() => setSyncToast(null), 4000);
   };
 
   const handleToggleMoviePremium = (movieId: string) => {
-    setMovies((prev) =>
-      prev.map((m) => {
+    setMovies((prev) => {
+      const updated = prev.map((m) => {
         if (m.id === movieId) {
-          return { ...m, isPremium: !m.isPremium };
+          const mod = { ...m, isPremium: !m.isPremium };
+          saveMovieToFirestore(mod).catch(() => {});
+          return mod;
         }
         return m;
-      })
-    );
+      });
+      try {
+        localStorage.setItem('cinedrive_movies_catalog_v1', JSON.stringify(updated.slice(0, 100)));
+      } catch (e) {}
+      return updated;
+    });
   };
 
   // Filter movies for display
@@ -396,7 +536,14 @@ export default function App() {
     return matchesCategory && matchesSearch;
   });
 
-  // Categorized Rows
+  // Categorized Rows: Dedicated row for all Google Drive movies and newly added films!
+  const googleDriveMovies = safeMovies.filter(
+    (m) =>
+      Boolean(m.googleDriveFileId) ||
+      m.id.startsWith('gdrive-') ||
+      (m.genres && (m.genres.includes('Google Drive') || m.genres.includes('Koleksi Utama'))) ||
+      m.isNewRelease
+  );
   const trendingMovies = safeMovies.filter((m) => (m.views || 0) > 20000);
   const premiumVipMovies = safeMovies.filter((m) => m.isPremium);
   const actionMovies = safeMovies.filter((m) => m.genres && m.genres.includes('Action'));
@@ -470,6 +617,22 @@ export default function App() {
         isAdmin={isAdmin}
         onOpenAdminLogin={() => setShowAdminLoginModal(true)}
       />
+
+      {/* Real-time Sync Toast Notification */}
+      {syncToast && (
+        <div className="bg-emerald-500/15 border-b border-emerald-500/40 px-4 py-2.5 text-xs text-emerald-300 flex items-center justify-between sticky top-14 z-30 backdrop-blur-md">
+          <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold text-emerald-200">{syncToast}</span>
+          </div>
+          <button 
+            onClick={() => setSyncToast(null)} 
+            className="text-emerald-400 hover:text-white px-2 py-0.5 text-xs font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Admin Mode Bar - Active only for Administrator */}
       {isAdmin && (
@@ -651,6 +814,23 @@ export default function App() {
 
             {/* Curated Movie Rows */}
             <div className="space-y-8">
+
+              {/* All Google Drive Movies & Recent Additions Row */}
+              {googleDriveMovies.length > 0 && (
+                <MovieRow
+                  title="🎬 Koleksi Film Google Drive & Rilisan Terbaru"
+                  subtitle="Film yang disinkronkan langsung dari Google Drive Anda dan tersimpan di sistem"
+                  icon={<HardDrive className="w-5 h-5 text-emerald-400" />}
+                  movies={googleDriveMovies}
+                  onPlayMovie={handlePlayMovie}
+                  watchlist={watchlist}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onOpenShare={(movie) => setShareMovieTarget(movie)}
+                  onDownloadMovie={handleDownloadMovie}
+                  downloads={downloads}
+                  progressMap={progressMap}
+                />
+              )}
               
               {/* Trending Movies Row */}
               <MovieRow

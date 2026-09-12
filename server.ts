@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
@@ -10,6 +11,45 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+function extractGoogleDriveId(input: string): string {
+  if (!input) return '';
+  const trimmed = input.trim();
+  const fileMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (fileMatch && fileMatch[1]) return fileMatch[1];
+  const folderMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (folderMatch && folderMatch[1]) return folderMatch[1];
+  const dMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (dMatch && dMatch[1]) return dMatch[1];
+  const idQueryMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (idQueryMatch && idQueryMatch[1]) return idQueryMatch[1];
+  const plainIdMatch = trimmed.match(/^[a-zA-Z0-9_-]{15,}$/);
+  if (plainIdMatch) return plainIdMatch[0];
+  return trimmed;
+}
+
+const MOVIES_CACHE_FILE = path.join(process.cwd(), 'data_saved_movies.json');
+
+function saveMoviesToFile(movies: any[]) {
+  try {
+    fs.writeFileSync(MOVIES_CACHE_FILE, JSON.stringify(movies.slice(0, 100), null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Could not persist movies to file:', err);
+  }
+}
+
+function loadSavedMoviesFromFile(): any[] | null {
+  try {
+    if (fs.existsSync(MOVIES_CACHE_FILE)) {
+      const raw = fs.readFileSync(MOVIES_CACHE_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (err) {
+    console.warn('Could not read persisted movies file:', err);
+  }
+  return null;
+}
 
 // In-memory movie database for runtime CRUD & persistence
 let moviesDatabase = [
@@ -276,6 +316,15 @@ const registeredDevices = [
   { id: 'dev-tab-04', name: 'Samsung Galaxy Tab S9', type: 'tablet', lastActive: '3 hari lalu' },
 ];
 
+// Load persisted movies from file if available
+const savedInitialMovies = loadSavedMoviesFromFile();
+if (savedInitialMovies && savedInitialMovies.length > 0) {
+  const existingIds = new Set(savedInitialMovies.map((m: any) => m.id));
+  const remainingDefault = moviesDatabase.filter((m: any) => !existingIds.has(m.id));
+  moviesDatabase = [...savedInitialMovies, ...remainingDefault];
+  console.log(`Loaded ${savedInitialMovies.length} saved movies from persistent storage.`);
+}
+
 // Gemini Client Lazy Initializer
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
@@ -331,31 +380,31 @@ app.get('/api/movies/:id', (req, res) => {
 app.post('/api/movies', (req, res) => {
   const body = req.body;
   if (!body.title || !body.googleDriveFileId) {
-    return res.status(400).json({ success: false, error: 'Judul dan Google Drive File ID wajib diisi' });
+    return res.status(400).json({ success: false, error: 'Judul dan Google Drive File ID / Link wajib diisi' });
   }
 
-  const driveId = body.googleDriveFileId.trim();
+  const driveId = extractGoogleDriveId(body.googleDriveFileId);
   const newMovie = {
-    id: 'movie-' + Date.now(),
+    id: body.id || ('movie-' + Date.now()),
     title: body.title,
     originalTitle: body.originalTitle || body.title,
     synopsis: body.synopsis || 'Deskripsi film terbaru yang tersimpan di Google Drive.',
     posterUrl: body.posterUrl || 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&auto=format&fit=crop&q=80',
     backdropUrl: body.backdropUrl || body.posterUrl || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1600&auto=format&fit=crop&q=80',
-    genres: Array.isArray(body.genres) && body.genres.length > 0 ? body.genres : ['Action', 'Drama'],
+    genres: Array.isArray(body.genres) && body.genres.length > 0 ? body.genres : ['Umum', 'Google Drive'],
     year: Number(body.year) || new Date().getFullYear(),
     durationMinutes: Number(body.durationMinutes) || 110,
-    rating: Number(body.rating) || 8.5,
+    rating: Number(body.rating) || 8.8,
     ageRating: body.ageRating || '13+',
     isPremium: Boolean(body.isPremium),
     price: body.isPremium ? (Number(body.price) || 35000) : 0,
     googleDriveFileId: driveId,
     driveShareUrl: `https://drive.google.com/file/d/${driveId}/view?usp=sharing`,
     streamEmbedUrl: `https://drive.google.com/file/d/${driveId}/preview`,
-    trailerVideoUrl: body.trailerVideoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+    trailerVideoUrl: body.trailerVideoUrl || '',
     resolution: body.resolution || '1080p FHD',
-    director: body.director || 'Sutradara Indonesia',
-    cast: Array.isArray(body.cast) ? body.cast : (body.cast ? [body.cast] : ['Aktor Terkenal']),
+    director: body.director || 'Google Drive Cinema',
+    cast: Array.isArray(body.cast) ? body.cast : (body.cast ? [body.cast] : ['Koleksi Pribadi']),
     audio: ['Indonesian (Dolby 5.1)', 'English (Stereo)'],
     subtitles: ['Bahasa Indonesia', 'English'],
     views: 120,
@@ -367,8 +416,25 @@ app.post('/api/movies', (req, res) => {
     totalEpisodes: body.totalEpisodes ? Number(body.totalEpisodes) : undefined,
   };
 
-  moviesDatabase.unshift(newMovie as any);
+  moviesDatabase = [newMovie, ...moviesDatabase.filter(m => m.id !== newMovie.id)];
+  saveMoviesToFile(moviesDatabase);
   res.status(201).json({ success: true, message: 'Film berhasil ditambahkan ke katalog Google Drive', data: newMovie });
+});
+
+// Admin Add Movies in Batch (from Google Drive Sync)
+app.post('/api/movies/batch', (req, res) => {
+  const { movies } = req.body;
+  if (!Array.isArray(movies) || movies.length === 0) {
+    return res.status(400).json({ success: false, error: 'Array film tidak valid' });
+  }
+
+  const existingMap = new Map(moviesDatabase.map(m => [m.id, m]));
+  for (const m of movies) {
+    existingMap.set(m.id, m);
+  }
+  moviesDatabase = Array.from(existingMap.values());
+  saveMoviesToFile(moviesDatabase);
+  res.json({ success: true, count: moviesDatabase.length, message: `${movies.length} film berhasil disinkronkan ke database server.` });
 });
 
 // Admin Delete Movie
@@ -378,13 +444,14 @@ app.delete('/api/movies/:id', (req, res) => {
   if (moviesDatabase.length === initialLen) {
     return res.status(404).json({ success: false, error: 'Film tidak ditemukan' });
   }
+  saveMoviesToFile(moviesDatabase);
   res.json({ success: true, message: 'Film berhasil dihapus dari database' });
 });
 
 // 2. Google Drive API Metadata & Stream Endpoint
 app.post('/api/drive/scan', async (req, res) => {
   const { folderId, accessToken } = req.body;
-  const targetFolderId = folderId ? String(folderId).trim() : '1fIXkBtjfRHIbRYEhrmJK7x5xmTGsH47g';
+  const targetFolderId = folderId ? extractGoogleDriveId(String(folderId)) : '1fIXkBtjfRHIbRYEhrmJK7x5xmTGsH47g';
   const apiKey = process.env.GOOGLE_DRIVE_API_KEY;
   const token = accessToken || (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '').trim() : null);
 
@@ -394,16 +461,73 @@ app.post('/api/drive/scan', async (req, res) => {
       const keyQuery = !token && apiKey ? `&key=${apiKey}` : '';
       
       let rootName = 'Google Drive Cinema';
+      let isDirectVideo = false;
+      let directMeta: any = null;
+
       try {
-        const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${targetFolderId}?fields=id,name,mimeType&supportsAllDrives=true${keyQuery}`, {
+        const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${targetFolderId}?fields=id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink&supportsAllDrives=true${keyQuery}`, {
           headers: authHeader
         });
         if (metaRes.ok) {
-          const meta = await metaRes.json();
-          rootName = meta.name || rootName;
+          directMeta = await metaRes.json();
+          rootName = directMeta.name || rootName;
+          if (directMeta.mimeType?.startsWith('video/') || directMeta.name?.match(/\.(mp4|mkv|mov|avi|webm)$/i) || directMeta.mimeType !== 'application/vnd.google-apps.folder') {
+            isDirectVideo = true;
+          }
         }
       } catch (e) {
-        console.warn('Cannot fetch folder meta:', e);
+        console.warn('Cannot fetch folder/file meta:', e);
+      }
+
+      // If the target is directly a single video file
+      if (isDirectVideo && directMeta) {
+        const singleMovie = {
+          id: `gdrive-${directMeta.id}`,
+          title: directMeta.name.replace(/\.(mp4|mkv|mov|avi|webm)$/i, '').replace(/[._]/g, ' ').trim(),
+          originalTitle: directMeta.name,
+          synopsis: `Film disinkronkan langsung dari file Google Drive Anda. Pemutaran lancar dengan Google Drive Video Stream engine resolusi tinggi.`,
+          posterUrl: directMeta.thumbnailLink ? directMeta.thumbnailLink.replace('=s220', '=s800') : 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800&auto=format&fit=crop&q=80',
+          backdropUrl: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1600&auto=format&fit=crop&q=80',
+          genres: ['Google Drive', 'Koleksi Utama'],
+          year: new Date().getFullYear(),
+          durationMinutes: 110,
+          rating: 8.8,
+          ageRating: '13+',
+          isPremium: false,
+          googleDriveFileId: directMeta.id,
+          driveShareUrl: directMeta.webViewLink || `https://drive.google.com/file/d/${directMeta.id}/view?usp=sharing`,
+          streamEmbedUrl: `https://drive.google.com/file/d/${directMeta.id}/preview`,
+          resolution: '1080p FHD',
+          director: 'Google Drive Cinema',
+          cast: ['Koleksi Pribadi'],
+          audio: ['Original Audio'],
+          subtitles: ['Bahasa Indonesia', 'English'],
+          views: 120,
+          totalWatchHours: 85,
+          releaseDate: new Date().toISOString().split('T')[0],
+          isNewRelease: true
+        };
+
+        // Persist to moviesDatabase
+        moviesDatabase = [singleMovie, ...moviesDatabase.filter(m => m.id !== singleMovie.id)];
+        saveMoviesToFile(moviesDatabase);
+
+        return res.json({
+          success: true,
+          source: 'live_google_drive_api',
+          data: {
+            rootFolderId: directMeta.id,
+            rootFolderName: directMeta.name,
+            categories: [{
+              category: 'Koleksi Utama',
+              folderId: directMeta.id,
+              videoCount: 1,
+              files: [directMeta]
+            }],
+            totalVideos: 1,
+            syncedMovies: [singleMovie]
+          }
+        });
       }
 
       const query = `'${targetFolderId}' in parents and trashed = false`;
@@ -509,6 +633,16 @@ app.post('/api/drive/scan', async (req, res) => {
         }
 
         if (syncedMovies.length > 0) {
+          // Persist to moviesDatabase
+          const existingIds = new Set(moviesDatabase.map(m => m.id));
+          for (const m of syncedMovies) {
+            if (!existingIds.has(m.id)) {
+              moviesDatabase.unshift(m);
+              existingIds.add(m.id);
+            }
+          }
+          saveMoviesToFile(moviesDatabase);
+
           return res.json({
             success: true,
             source: 'live_google_drive_api',
@@ -661,6 +795,16 @@ app.post('/api/drive/scan', async (req, res) => {
         isNewRelease: true
       }
     ];
+
+    // Persist fallback movies to moviesDatabase as well
+    const existingFallbackIds = new Set(moviesDatabase.map(m => m.id));
+    for (const m of fallbackMovies) {
+      if (!existingFallbackIds.has(m.id)) {
+        moviesDatabase.unshift(m);
+        existingFallbackIds.add(m.id);
+      }
+    }
+    saveMoviesToFile(moviesDatabase);
 
     return res.json({
       success: true,

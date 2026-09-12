@@ -1,4 +1,5 @@
 import { Movie } from '../types';
+import { extractGoogleDriveId } from '../utils/driveUtils';
 
 export interface DriveFolderInfo {
   id: string;
@@ -62,22 +63,55 @@ export async function scanDriveFolderCategories(
   accessToken: string, 
   rootFolderId: string = '1fIXkBtjfRHIbRYEhrmJK7x5xmTGsH47g'
 ): Promise<DriveScanResult> {
-  // 1. Get root folder details
+  const cleanRootId = extractGoogleDriveId(rootFolderId) || '1fIXkBtjfRHIbRYEhrmJK7x5xmTGsH47g';
+
+  // 1. Get root folder/file details
   let rootFolderName = 'Koleksi Film Google Drive';
   try {
-    const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${rootFolderId}?fields=id,name,mimeType&supportsAllDrives=true`, {
+    const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${cleanRootId}?fields=id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink&supportsAllDrives=true`, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (metaRes.ok) {
       const meta = await metaRes.json();
       rootFolderName = meta.name || rootFolderName;
+
+      // Check if this is a single video file directly
+      const isVideo = meta.mimeType?.startsWith('video/') || 
+                      Boolean(meta.name?.match(/\.(mp4|mkv|mov|avi|webm)$/i)) ||
+                      meta.mimeType !== 'application/vnd.google-apps.folder';
+
+      if (isVideo && meta.mimeType !== 'application/vnd.google-apps.folder') {
+        const singleFile: DriveVideoFile = {
+          id: meta.id,
+          name: meta.name || 'Film Google Drive',
+          mimeType: meta.mimeType || 'video/mp4',
+          sizeBytes: meta.size ? parseInt(meta.size, 10) : undefined,
+          webViewLink: meta.webViewLink,
+          webContentLink: meta.webContentLink,
+          thumbnailLink: meta.thumbnailLink,
+          categoryFolder: 'Google Drive'
+        };
+        const singleMovie = convertDriveFileToMovie(singleFile, 'Google Drive');
+        return {
+          rootFolderId: meta.id,
+          rootFolderName: meta.name || 'Film Google Drive',
+          categories: [{
+            category: 'Google Drive',
+            folderId: meta.id,
+            videoCount: 1,
+            files: [singleFile]
+          }],
+          totalVideos: 1,
+          syncedMovies: [singleMovie]
+        };
+      }
     }
   } catch (e) {
-    console.warn('Could not fetch root folder name', e);
+    console.warn('Could not fetch root details', e);
   }
 
   // 2. List items directly in root folder
-  const rootItems = await listDriveItems(accessToken, rootFolderId);
+  const rootItems = await listDriveItems(accessToken, cleanRootId);
 
   const subfolders = rootItems.filter(item => item.mimeType === 'application/vnd.google-apps.folder');
   const directVideos = rootItems.filter(item => 
