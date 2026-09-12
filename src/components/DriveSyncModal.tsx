@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { googleSignIn, logoutGoogle, isSuperAdmin } from '../lib/firebaseAuth';
+import { firebaseConfig } from '../lib/firebaseConfig';
 import { scanDriveFolderCategories, DriveScanResult, convertDriveFileToMovie } from '../lib/driveSync';
 import { Movie } from '../types';
 
@@ -59,7 +60,7 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({
   const [manualToken, setManualToken] = useState('');
 
   const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'perdinanmoses34-hub.github.io';
-  const firebaseProjectId = 'gen-lang-client-0380774191';
+  const firebaseProjectId = firebaseConfig.projectId || 'gen-lang-client-0629789069';
   const firebaseAuthSettingsUrl = `https://console.firebase.google.com/project/${firebaseProjectId}/authentication/settings`;
 
   const copyToClipboard = (text: string) => {
