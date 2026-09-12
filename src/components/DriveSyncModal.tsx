@@ -310,6 +310,19 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({
           </div>
         </div>
 
+        {/* Active Firebase Connection Info Badge */}
+        <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-[11px] text-neutral-400 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+            <span>Proyek Firebase Aktif:</span>
+            <strong className="text-white font-mono">{firebaseProjectId}</strong>
+          </div>
+          <div className="flex items-center gap-2">
+            <span>Domain Saat Ini:</span>
+            <strong className="text-amber-400 font-mono">{currentHost}</strong>
+          </div>
+        </div>
+
         {/* Special Guidance: Unauthorized Domain Banner */}
         {unauthorizedDomain && (
           <div className="mb-5 p-4 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-200 text-xs space-y-3">
@@ -320,53 +333,74 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({
                   Domain Belum Diizinkan di Firebase Authentication
                 </div>
                 <p className="text-amber-300/90 leading-relaxed">
-                  Firebase menolak login dari domain ini karena domain belum didaftarkan di daftar <strong>Authorized domains</strong> Firebase Console.
+                  Firebase menolak login dari domain ini karena domain belum didaftarkan di daftar <strong>Authorized domains</strong> Firebase Console pada proyek <strong>{firebaseProjectId}</strong>.
                 </p>
               </div>
             </div>
 
-            <div className="bg-neutral-950/80 rounded-lg p-3 border border-amber-500/20 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-neutral-400">Domain yang harus ditambahkan:</span>
+            {/* Target Domains to Add */}
+            <div className="space-y-2 bg-neutral-950/80 rounded-lg p-3 border border-amber-500/20">
+              <div className="text-[11px] font-semibold text-neutral-300">
+                Daftarkan domain berikut ke Firebase Authorized Domains:
+              </div>
+
+              {/* Current Host (Preview or Local or Custom) */}
+              <div className="flex items-center justify-between gap-2 bg-neutral-900 px-3 py-2 rounded border border-neutral-800">
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-neutral-400">Domain browser saat ini (tempat Anda mengklik tombol login):</span>
+                  <span className="font-mono text-xs text-white select-all">{unauthorizedDomain}</span>
+                </div>
                 <button
                   onClick={() => copyToClipboard(unauthorizedDomain)}
-                  className="px-2.5 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="px-2.5 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
                 >
-                  {copiedDomain ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Tersalin!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Salin Domain</span>
-                    </>
-                  )}
+                  {copiedDomain ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>Salin Domain Ini</span>
                 </button>
               </div>
-              <div className="font-mono text-xs text-white bg-neutral-900 px-3 py-1.5 rounded border border-neutral-800 select-all">
-                {unauthorizedDomain}
-              </div>
+
+              {/* GitHub Pages Host if different */}
+              {unauthorizedDomain !== 'perdinanmoses34-hub.github.io' && (
+                <div className="flex items-center justify-between gap-2 bg-neutral-900 px-3 py-2 rounded border border-neutral-800">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-neutral-400">Domain GitHub Pages Anda:</span>
+                    <span className="font-mono text-xs text-white select-all">perdinanmoses34-hub.github.io</span>
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard('perdinanmoses34-hub.github.io')}
+                    className="px-2.5 py-1 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Salin Domain GitHub</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5 text-[11px] text-neutral-300 pl-1">
-              <div className="font-semibold text-white">Cara Mengaktifkan di Firebase Console (1 Menit):</div>
-              <ol className="list-decimal pl-4 space-y-1 text-neutral-300">
+              <div className="font-semibold text-white">Langkah Cepat Menyelesaikan di Firebase Console (1 Menit):</div>
+              <ol className="list-decimal pl-4 space-y-1.5 text-neutral-300">
                 <li>
-                  Buka Firebase Console:{' '}
+                  Buka langsung pengaturan proyek Firebase baru Anda ({firebaseProjectId}):{' '}
                   <a
                     href={firebaseAuthSettingsUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="text-amber-400 underline inline-flex items-center gap-0.5 hover:text-amber-300 font-medium"
                   >
-                    Buka Pengaturan Firebase Auth <ExternalLink className="w-3 h-3" />
+                    Buka Pengaturan Firebase Auth ({firebaseProjectId}) <ExternalLink className="w-3 h-3" />
                   </a>
                 </li>
-                <li>Pilih tab <strong>Settings</strong> &gt; menu <strong>Authorized domains</strong>.</li>
-                <li>Klik tombol <strong>"Add domain"</strong> lalu tempelkan <code className="text-amber-300 font-mono bg-neutral-900 px-1 py-0.5 rounded">{unauthorizedDomain}</code>.</li>
-                <li>Klik <strong>Save</strong>. Lalu kembali ke sini dan klik tombol <strong>"Masuk dengan Google"</strong> kembali.</li>
+                <li>
+                  Pilih tab <strong>Settings</strong> &gt; menu <strong>Authorized domains</strong>.
+                </li>
+                <li>
+                  Pastikan <strong>kedua domain</strong> di atas (baik domain preview maupun domain GitHub Pages) sudah ditambahkan dengan klik <strong>"Add domain"</strong>.
+                  <span className="block text-[10px] text-neutral-400 italic mt-0.5">Catatan: Masukkan nama domain murni saja (tanpa https:// dan tanpa garis miring).</span>
+                </li>
+                <li>
+                  Klik <strong>Save</strong>. Lalu coba klik tombol <strong>"Masuk dengan Google"</strong> kembali.
+                </li>
               </ol>
             </div>
           </div>
